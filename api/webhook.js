@@ -1,8 +1,11 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, addDoc, serverTimestamp } from "firebase/firestore";
 
+// --- KONFIGURASI TELEGRAM BOT ---
+// Token Bot Anda (Sesuai riwayat chat sebelumnya)
+const BOT_TOKEN = "8490021696:AAGv-lgFCmKCg5x0Tr6xnqS3pQEEENAEZNA";
+
 // --- KONFIGURASI FIREBASE ---
-// (Pastikan config ini SAMA PERSIS dengan yang ada di index.html Anda)
 const firebaseConfig = {
   apiKey: "AIzaSyC9-fXqAQKkcbrCppYiQXz8dkjdeO_cM-Q",
   authDomain: "senpayment-218ab.firebaseapp.com",
@@ -26,53 +29,53 @@ export default async function handler(req, res) {
     // Cek apakah ini pesan balasan (Reply) di Telegram
     if (body.message && body.message.reply_to_message) {
       
-      // 1. SET NAMA ADMIN SESUAI REQUEST ("ADMIN BT")
       const adminName = "ADMIN BT"; 
-      
-      const replyText = body.message.text; // Jawaban Admin
-      const originalText = body.message.reply_to_message.text || ""; // Teks notifikasi yang dibalas
+      const replyText = body.message.text;
+      const originalText = body.message.reply_to_message.text || "";
+      const chatId = body.message.chat.id; // ID Chat Admin untuk kirim konfirmasi
 
-      // 2. LOGIKA EKSTRAKSI "REPLY TO"
-      // Kita harus mengambil "Nama User" dan "Isi Pesan User" dari teks notifikasi bot.
-      // Format Notifikasi Bot Anda: "👤 Nama: Agil\n... 💬 Pesan:\nHalo min..."
-      
+      // LOGIKA PARSING REPLY (SAMA SEPERTI SEBELUMNYA)
       let replyContext = null;
-
-      // Cari Nama User (Regex mencari teks setelah "Nama: " sampai baris baru)
       const matchNama = originalText.match(/Nama:\s*(.*)/);
-      
-      // Cari Isi Pesan User (Mengambil semua teks setelah "💬 Pesan:")
-      // Kita split karena pesan user ada di paling bawah
       const splitMsg = originalText.split("💬 Pesan:");
       
       if (matchNama && splitMsg.length > 1) {
-        // Bersihkan teks dari sisa-sisa format
-        const userMsg = splitMsg[1].trim(); 
-        const userName = matchNama[1].trim();
-
         replyContext = {
-            name: userName, // Nama User yang muncul di Quote
-            text: userMsg   // Isi Pesan User yang muncul di Quote
+            name: matchNama[1].trim(),
+            text: splitMsg[1].trim()
         };
       } else {
-        // Fallback jika Admin mereply pesan manual (bukan notifikasi bot)
-        replyContext = {
-            name: "User",
-            text: "Pesan Pengguna"
-        };
+        replyContext = { name: "User", text: "Pesan Pengguna" };
       }
 
-      // 3. SIMPAN KE FIRESTORE DENGAN DATA REPLY
+      // 1. SIMPAN KE FIRESTORE
       await addDoc(collection(db, "chat_public"), {
         nama: adminName,
         pesan: replyText,
-        role: "admin", // Agar bubble warna kuning
+        role: "admin",
         uid: "ADMIN_TELEGRAM",
         timestamp: serverTimestamp(),
-        reply_to: replyContext // <--- INI KUNCINYA AGAR MUNCUL KUTIPAN DI WEB
+        reply_to: replyContext
       });
 
-      return res.status(200).send('OK: Balasan Admin BT Disimpan');
+      // 2. KIRIM KONFIRMASI BALIK KE TELEGRAM (FITUR BARU)
+      try {
+          const telegramMsg = "▶️Pesan Terkirim◀️";
+          await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                  chat_id: chatId,
+                  text: telegramMsg,
+                  reply_to_message_id: body.message.message_id // Mereply pesan "Oke siap" dari admin
+              })
+          });
+      } catch (tgError) {
+          console.error("Gagal kirim notif balik ke Telegram:", tgError);
+          // Kita tidak throw error disini agar status tetap 200 (karena save database sukses)
+      }
+
+      return res.status(200).send('OK: Terkirim');
     }
 
     return res.status(200).send('OK: Diabaikan');
